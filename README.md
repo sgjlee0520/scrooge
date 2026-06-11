@@ -44,24 +44,57 @@ claude mcp add lab-tools -- "$PWD/.venv/bin/python" "$PWD/mcp_server.py"
 > image once to find the axis ticks itself, which is still a one-time cost
 > versus re-reading the image on every conversation turn.
 
-## Requirements
+## Version 1: Run it locally (private)
 
-- Python 3.10+
-- Tesseract (`brew install tesseract`)
-- Extra OCR languages: drop `<lang>.traineddata` files into
-  `/opt/homebrew/share/tessdata/` (from
-  https://github.com/tesseract-ocr/tessdata_fast). `eng` and `kor` are
-  already installed on this machine.
+Your files never leave your machine — use this for sensitive documents.
 
-## Run
+**Prerequisites:** Python 3.10+ and Tesseract:
 
 ```sh
+# macOS                          # Debian/Ubuntu
+brew install tesseract           sudo apt install tesseract-ocr
+```
+
+For OCR languages beyond English, drop `<lang>.traineddata` files from
+[tessdata_fast](https://github.com/tesseract-ocr/tessdata_fast) into your
+tessdata directory (`/opt/homebrew/share/tessdata/` on macOS,
+`/usr/share/tesseract-ocr/*/tessdata/` on Linux), or
+`brew install tesseract-lang` / `apt install tesseract-ocr-kor` etc.
+
+**Install and run:**
+
+```sh
+git clone https://github.com/sgjlee0520/scrooge
+cd scrooge
 python3 -m venv .venv
 .venv/bin/pip install -r requirements.txt
 .venv/bin/python app.py
 ```
 
 Then open http://127.0.0.1:5050.
+
+**Or with Docker** (English + Korean OCR included):
+
+```sh
+docker build -t scrooge . && docker run -p 8000:8000 scrooge
+```
+
+## Version 2: Host it online
+
+GitHub Pages **cannot** host this (it serves static files only — no Python,
+no Tesseract), and Vercel's serverless runtime doesn't ship the Tesseract
+binary. Use a Docker-friendly host instead; the included `Dockerfile` works
+as-is on **Render**, **Railway**, or **Fly.io**:
+
+- **Render / Railway:** create a new web service, connect this repo — the
+  `Dockerfile` is detected automatically. Both have free tiers (which sleep
+  when idle; OCR is CPU-heavy, so expect slow cold starts there).
+- **Fly.io:** `fly launch` in the repo root.
+
+**Privacy note for the hosted version:** uploaded files transit your server
+(they're written to a temp file and deleted after processing, with results
+held in memory). Say so in your site's footer, and point privacy-sensitive
+users at the local version.
 
 ## API
 
@@ -77,9 +110,10 @@ AGPL-3.0 (see [LICENSE](LICENSE)). This project depends on PyMuPDF, which
 is AGPL-licensed; if you run a modified version of this app as a network
 service, the AGPL requires you to offer your users its source code.
 
-## Notes for deployment
+## Production hardening notes
 
-The job store is in-memory and the server runs Flask's dev server — fine
-locally. To put this on the internet: run under gunicorn with **one** worker
-(or move jobs to Redis/RQ), add a reverse proxy, and consider rate limiting,
-since OCR is CPU-heavy.
+The `Dockerfile` already runs gunicorn with a single worker (required: the
+job store is in-process memory — moving to more workers means moving jobs
+to Redis/RQ). Before serious public traffic, also add per-IP rate limiting
+(OCR is CPU-heavy, so abuse melts the server) and periodic cleanup of old
+jobs from the in-memory store.
