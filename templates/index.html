@@ -1,0 +1,207 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>PDF → Text / Markdown</title>
+<style>
+  :root {
+    --bg: #0f1115; --panel: #181b22; --border: #2a2f3a;
+    --text: #e6e9ef; --muted: #8b93a3; --accent: #4f8cff;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--bg); color: var(--text);
+    font: 15px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    display: flex; flex-direction: column; align-items: center;
+    min-height: 100vh; padding: 40px 16px;
+  }
+  main { width: 100%; max-width: 860px; }
+  h1 { font-size: 1.5rem; margin: 0 0 4px; }
+  .sub { color: var(--muted); margin: 0 0 24px; }
+
+  #drop {
+    border: 2px dashed var(--border); border-radius: 12px;
+    padding: 48px 24px; text-align: center; cursor: pointer;
+    transition: border-color .15s, background .15s;
+  }
+  #drop.dragover { border-color: var(--accent); background: #1a2233; }
+  #drop strong { color: var(--accent); }
+  #file-input { display: none; }
+
+  .controls { display: flex; gap: 12px; align-items: center; margin: 16px 0; }
+  select, button {
+    background: var(--panel); color: var(--text);
+    border: 1px solid var(--border); border-radius: 8px;
+    padding: 8px 14px; font-size: 14px; cursor: pointer;
+  }
+  button.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+  button:disabled { opacity: .45; cursor: default; }
+
+  #progress-wrap { display: none; margin: 20px 0; }
+  #bar-track { background: var(--panel); border-radius: 6px; height: 10px; overflow: hidden; }
+  #bar { background: var(--accent); height: 100%; width: 0%; transition: width .3s; }
+  #progress-note { color: var(--muted); font-size: 13px; margin-top: 6px; }
+
+  #result { display: none; margin-top: 24px; }
+  .tabs { display: flex; gap: 8px; margin-bottom: 0; }
+  .tab {
+    padding: 8px 18px; border: 1px solid var(--border); border-bottom: none;
+    border-radius: 8px 8px 0 0; background: none; color: var(--muted);
+  }
+  .tab.active { background: var(--panel); color: var(--text); }
+  #preview {
+    background: var(--panel); border: 1px solid var(--border);
+    border-radius: 0 8px 8px 8px; padding: 16px; max-height: 420px;
+    overflow: auto; white-space: pre-wrap; font: 13px/1.5 ui-monospace, Menlo, monospace;
+  }
+  .downloads { display: flex; gap: 12px; margin-top: 16px; }
+  #meta { color: var(--muted); font-size: 13px; margin-top: 10px; }
+  #error { display: none; color: #ff7070; margin-top: 16px; }
+</style>
+</head>
+<body>
+<main>
+  <nav style="margin-bottom:20px">
+    <a href="/" style="color:var(--accent);text-decoration:none;margin-right:16px">PDF → Text</a>
+    <a href="/plots" style="color:var(--muted);text-decoration:none">Plot → Data</a>
+  </nav>
+  <h1>PDF → Text / Markdown</h1>
+  <p class="sub">Embedded text is extracted directly; scanned pages are OCR'd with Tesseract.</p>
+
+  <div id="drop">
+    <p><strong>Choose a PDF</strong> or drag &amp; drop it here</p>
+    <p id="filename" style="color:var(--muted)">No file selected</p>
+  </div>
+  <input type="file" id="file-input" accept="application/pdf">
+
+  <div class="controls">
+    <label for="lang" style="color:var(--muted)">OCR language</label>
+    <select id="lang">
+      {% for l in languages %}
+      <option value="{{ l }}" {% if l == 'eng' %}selected{% endif %}>{{ l }}</option>
+      {% endfor %}
+    </select>
+    <button class="primary" id="convert" disabled>Convert</button>
+  </div>
+
+  <div id="progress-wrap">
+    <div id="bar-track"><div id="bar"></div></div>
+    <p id="progress-note"></p>
+  </div>
+
+  <p id="error"></p>
+
+  <div id="result">
+    <div class="tabs">
+      <button class="tab active" data-fmt="txt">Plain text</button>
+      <button class="tab" data-fmt="md">Markdown</button>
+    </div>
+    <div id="preview"></div>
+    <div class="downloads">
+      <button class="primary" id="dl-txt">Download .txt</button>
+      <button class="primary" id="dl-md">Download .md</button>
+    </div>
+    <p id="meta"></p>
+  </div>
+</main>
+
+<script>
+const drop = document.getElementById('drop');
+const input = document.getElementById('file-input');
+const convertBtn = document.getElementById('convert');
+const filenameEl = document.getElementById('filename');
+const progressWrap = document.getElementById('progress-wrap');
+const bar = document.getElementById('bar');
+const note = document.getElementById('progress-note');
+const result = document.getElementById('result');
+const preview = document.getElementById('preview');
+const errorEl = document.getElementById('error');
+const meta = document.getElementById('meta');
+
+let file = null, jobId = null, previews = {};
+
+drop.onclick = () => input.click();
+input.onchange = () => setFile(input.files[0]);
+['dragover', 'dragleave', 'drop'].forEach(ev =>
+  drop.addEventListener(ev, e => {
+    e.preventDefault();
+    drop.classList.toggle('dragover', ev === 'dragover');
+    if (ev === 'drop') setFile(e.dataTransfer.files[0]);
+  })
+);
+
+function setFile(f) {
+  if (!f) return;
+  if (!f.name.toLowerCase().endsWith('.pdf')) return showError('Please select a PDF file.');
+  file = f;
+  filenameEl.textContent = `${f.name} (${(f.size / 1048576).toFixed(1)} MB)`;
+  convertBtn.disabled = false;
+  result.style.display = 'none';
+  errorEl.style.display = 'none';
+}
+
+function showError(msg) {
+  errorEl.textContent = msg;
+  errorEl.style.display = 'block';
+  progressWrap.style.display = 'none';
+  convertBtn.disabled = !file;
+}
+
+convertBtn.onclick = async () => {
+  convertBtn.disabled = true;
+  errorEl.style.display = 'none';
+  result.style.display = 'none';
+  progressWrap.style.display = 'block';
+  bar.style.width = '0%';
+  note.textContent = 'Uploading…';
+
+  const form = new FormData();
+  form.append('file', file);
+  form.append('lang', document.getElementById('lang').value);
+
+  try {
+    const res = await fetch('/api/jobs', { method: 'POST', body: form });
+    const data = await res.json();
+    if (!res.ok) return showError(data.error || 'Upload failed.');
+    jobId = data.id;
+    poll();
+  } catch (e) {
+    showError('Network error: ' + e.message);
+  }
+};
+
+async function poll() {
+  const res = await fetch(`/api/jobs/${jobId}`);
+  const job = await res.json();
+  if (job.status === 'error') return showError(job.error);
+  if (job.status === 'processing') {
+    if (job.total) {
+      bar.style.width = `${(100 * job.done / job.total).toFixed(0)}%`;
+      note.textContent = `${job.note} (${job.done}/${job.total})`;
+    }
+    return setTimeout(poll, 600);
+  }
+  // done
+  bar.style.width = '100%';
+  progressWrap.style.display = 'none';
+  previews = job.preview;
+  showTab('txt');
+  meta.textContent = `${job.pages} page(s) · ` + (job.ocr_pages.length
+    ? `OCR used on page(s): ${job.ocr_pages.join(', ')}`
+    : 'no OCR needed (all pages had a text layer)');
+  result.style.display = 'block';
+  convertBtn.disabled = false;
+}
+
+function showTab(fmt) {
+  document.querySelectorAll('.tab').forEach(t =>
+    t.classList.toggle('active', t.dataset.fmt === fmt));
+  preview.textContent = previews[fmt] || '(empty)';
+}
+document.querySelectorAll('.tab').forEach(t => t.onclick = () => showTab(t.dataset.fmt));
+document.getElementById('dl-txt').onclick = () => location.href = `/api/jobs/${jobId}/download?fmt=txt`;
+document.getElementById('dl-md').onclick = () => location.href = `/api/jobs/${jobId}/download?fmt=md`;
+</script>
+</body>
+</html>

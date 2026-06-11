@@ -1,0 +1,8 @@
+flask>=3.0
+pytesseract>=0.3.13
+pymupdf>=1.26
+pymupdf4llm>=0.0.20
+pillow>=11.0
+numpy>=2.0
+scipy>=1.14
+mcp[cli]>=1.0
