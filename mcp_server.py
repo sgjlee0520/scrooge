@@ -80,4 +80,11 @@ def list_ocr_languages() -> str:
 
 
 if __name__ == "__main__":
-    mcp.run()
+    import sys
+
+    if "--http" in sys.argv:
+        # For clients that need a remote MCP server (e.g. ChatGPT
+        # connectors): serves streamable HTTP at http://127.0.0.1:8000/mcp
+        mcp.run(transport="streamable-http")
+    else:
+        mcp.run()  # stdio, for local clients (Claude/Codex/Gemini CLIs)

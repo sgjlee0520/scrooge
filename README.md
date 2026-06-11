@@ -1,5 +1,9 @@
 # Lab Tools — PDF → Text and Plot → Data
 
+**▶ Use it online: https://scrooge-4cx7.onrender.com/** — no install needed.
+(Free-tier hosting: the site sleeps when idle, so the first visit may take
+~30–60 s to wake up.)
+
 Two utilities for turning pixels into token-cheap, computation-ready text
 (see [TOKEN_ECONOMICS.md](TOKEN_ECONOMICS.md) for the cost argument):
 
@@ -29,22 +33,60 @@ its color. Pixels matching each color are masked and collapsed into points —
 median row per column for lines, blob centroids for scatter. Extraction is
 shape-agnostic: lines, sinusoids, parabolas, any y = f(x) curve.
 
-## MCP server (use the tools from Claude)
+## MCP server (use the tools from Claude, ChatGPT, or Gemini)
 
 `mcp_server.py` exposes `pdf_to_text`, `digitize_plot`, and
-`list_ocr_languages` over stdio, so Claude Code / Claude Desktop can read
-scanned PDFs and plot images as cheap text instead of vision tokens:
+`list_ocr_languages` over MCP, so AI agents can read scanned PDFs and plot
+images as cheap text instead of vision tokens. Set up the local install
+first (Version 2 above), then register it with your client:
+
+**Claude Code / Claude Desktop:**
 
 ```sh
 claude mcp add lab-tools -- "$PWD/.venv/bin/python" "$PWD/mcp_server.py"
 ```
+
+**Codex CLI (ChatGPT):** add to `~/.codex/config.toml`:
+
+```toml
+[mcp_servers.lab-tools]
+command = "/absolute/path/to/scrooge/.venv/bin/python"
+args = ["/absolute/path/to/scrooge/mcp_server.py"]
+```
+
+**Gemini CLI:** add to `~/.gemini/settings.json`:
+
+```json
+{
+  "mcpServers": {
+    "lab-tools": {
+      "command": "/absolute/path/to/scrooge/.venv/bin/python",
+      "args": ["/absolute/path/to/scrooge/mcp_server.py"]
+    }
+  }
+}
+```
+
+**ChatGPT app (connectors):** ChatGPT only accepts *remote* MCP servers.
+Run `mcp_server.py --http` (serves streamable HTTP at
+`http://127.0.0.1:8000/mcp`), expose it via a public HTTPS URL (e.g.
+`ngrok http 8000`), then add it under ChatGPT → Settings → Apps &
+Connectors (requires developer mode). Note the tools take *local file
+paths*, so they only make sense when the server runs on the machine that
+has your files.
 
 > **Caveat:** the web UI's click-to-calibrate doesn't exist over MCP, so
 > Claude has to be told the calibration pixel coordinates — or look at the
 > image once to find the axis ticks itself, which is still a one-time cost
 > versus re-reading the image on every conversation turn.
 
-## Version 1: Run it locally (private)
+## Version 1: Use it online (hosted)
+
+Just open **https://scrooge-4cx7.onrender.com/**. Note that uploaded files
+transit the server (written to a temp file, deleted after processing) — for
+sensitive documents, use the local version below.
+
+## Version 2: Run it locally (private)
 
 Your files never leave your machine — use this for sensitive documents.
 
@@ -79,22 +121,18 @@ Then open http://127.0.0.1:5050.
 docker build -t scrooge . && docker run -p 8000:8000 scrooge
 ```
 
-## Version 2: Host it online
+## Host your own copy
 
 GitHub Pages **cannot** host this (it serves static files only — no Python,
 no Tesseract), and Vercel's serverless runtime doesn't ship the Tesseract
-binary. Use a Docker-friendly host instead; the included `Dockerfile` works
-as-is on **Render**, **Railway**, or **Fly.io**:
+binary. Use a Docker-friendly host instead; the included `Dockerfile` and
+`render.yaml` work as-is on **Render** (that's what powers the official
+instance above), and the `Dockerfile` alone works on **Railway** or
+**Fly.io** (`fly launch`).
 
-- **Render / Railway:** create a new web service, connect this repo — the
-  `Dockerfile` is detected automatically. Both have free tiers (which sleep
-  when idle; OCR is CPU-heavy, so expect slow cold starts there).
-- **Fly.io:** `fly launch` in the repo root.
-
-**Privacy note for the hosted version:** uploaded files transit your server
-(they're written to a temp file and deleted after processing, with results
-held in memory). Say so in your site's footer, and point privacy-sensitive
-users at the local version.
+**Privacy note for hosts:** uploaded files transit your server (written to
+a temp file, deleted after processing, results held in memory). Say so on
+your instance, and point privacy-sensitive users at the local version.
 
 ## API
 
