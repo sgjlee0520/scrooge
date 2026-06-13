@@ -1,4 +1,5 @@
 <img width="1408" height="768" alt="Gemini_Generated_Image_2uwf3z2uwf3z2uwf" src="https://github.com/user-attachments/assets/a8cbbee0-1fc8-45ef-ad09-5285886af967" />
+
 # Lab Tools — PDF → Text and Plot → Data
 
 **▶ Use it online: https://scrooge-4cx7.onrender.com/** — no install needed.
