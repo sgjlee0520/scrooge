@@ -16,9 +16,9 @@ Two utilities for turning pixels into token-cheap, computation-ready text
    (x, y) data series, downloadable as `.csv`, `.json`, `.md`, or a
    matplotlib `.py` script.
 
-## How PDF → Text works
+## How PDF / Image → Text works
 
-Each page is routed to the best extraction method:
+Each PDF page is routed to the best extraction method:
 
 - **Pages with an embedded text layer** → extracted directly with PyMuPDF
   (lossless, fast). Markdown conversion via `pymupdf4llm`, which preserves
@@ -26,7 +26,8 @@ Each page is routed to the best extraction method:
 - **Scanned/image pages** → rendered at 300 DPI and OCR'd with Tesseract.
 
 Mixed documents are handled per page, so a PDF with some scanned pages and
-some digital pages comes out right.
+some digital pages comes out right. Uploaded images (PNG/JPEG/TIFF/BMP/WebP)
+go straight to Tesseract OCR.
 
 ## How Plot → Data works
 
