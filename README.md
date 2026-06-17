@@ -9,8 +9,9 @@
 Two utilities for turning pixels into token-cheap, computation-ready text
 (see [TOKEN_ECONOMICS.md](TOKEN_ECONOMICS.md) for the cost argument):
 
-1. **PDF → Text** (`/`) — converts uploaded PDFs to plain text or Markdown,
-   downloadable as `.txt` or `.md`.
+1. **PDF / Image → Text** (`/`) — converts uploaded PDFs *and* images
+   (PNG/JPEG/TIFF/BMP/WebP) to plain text or Markdown, downloadable as
+   `.txt` or `.md`.
 2. **Plot → Data** (`/plots`) — digitizes images of simple plots into
    (x, y) data series, downloadable as `.csv`, `.json`, `.md`, or a
    matplotlib `.py` script.
@@ -37,10 +38,10 @@ shape-agnostic: lines, sinusoids, parabolas, any y = f(x) curve.
 
 ## MCP server (use the tools from Claude, ChatGPT, or Gemini)
 
-`mcp_server.py` exposes `pdf_to_text`, `digitize_plot`, and
-`list_ocr_languages` over MCP, so AI agents can read scanned PDFs and plot
-images as cheap text instead of vision tokens. Set up the local install
-first (Version 2 above), then register it with your client:
+`mcp_server.py` exposes `pdf_to_text`, `image_to_text`, `digitize_plot`, and
+`list_ocr_languages` over MCP, so AI agents can read scanned PDFs, images,
+and plot figures as cheap text instead of vision tokens. Set up the local
+install first (Version 2 above), then register it with your client:
 
 **Claude Code / Claude Desktop:**
 

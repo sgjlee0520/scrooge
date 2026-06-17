@@ -74,6 +74,18 @@ def digitize_plot(
 
 
 @mcp.tool()
+def image_to_text(image_path: str, fmt: str = "md", ocr_language: str = "eng") -> str:
+    """OCR a local image (PNG/JPEG/TIFF/BMP/WebP) to text without vision
+    tokens, using Tesseract.
+
+    fmt: "md" (paragraph-cleaned markdown) or "txt" (plain text).
+    ocr_language: Tesseract language code, e.g. "eng" or "kor".
+    """
+    result = extractor.extract_image(image_path, lang=ocr_language)
+    return result["md" if fmt == "md" else "txt"]
+
+
+@mcp.tool()
 def list_ocr_languages() -> str:
     """List the Tesseract OCR languages installed on this machine."""
     return ", ".join(extractor.available_languages())

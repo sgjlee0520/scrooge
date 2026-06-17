@@ -66,14 +66,14 @@
     <a href="/" style="color:var(--accent);text-decoration:none;margin-right:16px">PDF → Text</a>
     <a href="/plots" style="color:var(--muted);text-decoration:none">Plot → Data</a>
   </nav>
-  <h1>PDF → Text / Markdown</h1>
-  <p class="sub">Embedded text is extracted directly; scanned pages are OCR'd with Tesseract.</p>
+  <h1>PDF / Image → Text / Markdown</h1>
+  <p class="sub">PDFs: embedded text is extracted directly, scanned pages are OCR'd. Images (PNG/JPEG) are OCR'd with Tesseract.</p>
 
   <div id="drop">
-    <p><strong>Choose a PDF</strong> or drag &amp; drop it here</p>
+    <p><strong>Choose a PDF or image</strong> or drag &amp; drop it here</p>
     <p id="filename" style="color:var(--muted)">No file selected</p>
   </div>
-  <input type="file" id="file-input" accept="application/pdf">
+  <input type="file" id="file-input" accept="application/pdf,image/png,image/jpeg,image/tiff,image/bmp,image/webp">
 
   <div class="controls">
     <label for="lang" style="color:var(--muted)">OCR language</label>
@@ -136,7 +136,7 @@ input.onchange = () => setFile(input.files[0]);
 
 function setFile(f) {
   if (!f) return;
-  if (!f.name.toLowerCase().endsWith('.pdf')) return showError('Please select a PDF file.');
+  if (!/\.(pdf|png|jpe?g|tiff?|bmp|webp)$/i.test(f.name)) return showError('Please select a PDF or image (PNG/JPEG) file.');
   file = f;
   filenameEl.textContent = `${f.name} (${(f.size / 1048576).toFixed(1)} MB)`;
   convertBtn.disabled = false;

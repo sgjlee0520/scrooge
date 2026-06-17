@@ -19,20 +19,21 @@ jobs = {}
 jobs_lock = threading.Lock()
 
 
-def _run_job(job_id, pdf_path, lang):
+def _run_job(job_id, path, lang, is_image):
     def progress(done, total, note):
         with jobs_lock:
             jobs[job_id].update(done=done, total=total, note=note)
 
     try:
-        result = extractor.extract(pdf_path, lang=lang, progress_cb=progress)
+        fn = extractor.extract_image if is_image else extractor.extract
+        result = fn(path, lang=lang, progress_cb=progress)
         with jobs_lock:
             jobs[job_id].update(status="done", result=result)
     except Exception as e:
         with jobs_lock:
             jobs[job_id].update(status="error", error=str(e))
     finally:
-        os.unlink(pdf_path)
+        os.unlink(path)
 
 
 @app.get("/")
@@ -43,13 +44,16 @@ def index():
 @app.post("/api/jobs")
 def create_job():
     file = request.files.get("file")
-    if not file or not file.filename.lower().endswith(".pdf"):
-        return jsonify(error="Please upload a PDF file."), 400
+    name = (file.filename or "").lower() if file else ""
+    is_image = name.endswith(extractor.IMAGE_EXTS)
+    if not file or not (name.endswith(".pdf") or is_image):
+        return jsonify(error="Please upload a PDF or image (PNG/JPEG) file."), 400
     lang = request.form.get("lang", "eng")
     if lang not in extractor.available_languages():
         return jsonify(error=f"OCR language '{lang}' is not installed."), 400
 
-    fd, path = tempfile.mkstemp(suffix=".pdf")
+    suffix = os.path.splitext(name)[1] or ".bin"
+    fd, path = tempfile.mkstemp(suffix=suffix)
     with os.fdopen(fd, "wb") as f:
         file.save(f)
 
@@ -62,7 +66,7 @@ def create_job():
             "total": 0,
             "note": "starting…",
         }
-    threading.Thread(target=_run_job, args=(job_id, path, lang), daemon=True).start()
+    threading.Thread(target=_run_job, args=(job_id, path, lang, is_image), daemon=True).start()
     return jsonify(id=job_id)
 
 

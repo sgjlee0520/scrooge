@@ -21,6 +21,9 @@ def available_languages():
     return sorted(langs)
 
 
+IMAGE_EXTS = (".png", ".jpg", ".jpeg", ".tif", ".tiff", ".bmp", ".webp")
+
+
 def _ocr_page(page, lang):
     pix = page.get_pixmap(dpi=OCR_DPI)
     img = Image.open(io.BytesIO(pix.tobytes("png")))
@@ -85,4 +88,22 @@ def extract(pdf_path, lang="eng", progress_cb=None):
         "md": "\n\n".join(p for p in md_parts if p),
         "pages": total,
         "ocr_pages": ocr_pages,
+    }
+
+
+def extract_image(image_path, lang="eng", progress_cb=None):
+    """OCR a single image file. Same return shape as extract()."""
+    img = Image.open(image_path)
+    # Tesseract works in RGB/grayscale; drop alpha/palette so PNGs with
+    # transparency don't OCR as a black rectangle.
+    if img.mode not in ("RGB", "L"):
+        img = img.convert("RGB")
+    raw = pytesseract.image_to_string(img, lang=lang)
+    if progress_cb:
+        progress_cb(1, 1, "OCR'd image")
+    return {
+        "txt": raw.strip(),
+        "md": _ocr_text_to_markdown(raw),
+        "pages": 1,
+        "ocr_pages": [1],
     }
