@@ -1,10 +1,21 @@
+---
+title: Scrooge Lab Tools
+emoji: 📄
+colorFrom: yellow
+colorTo: gray
+sdk: docker
+app_port: 8000
+pinned: false
+license: agpl-3.0
+---
+
 <img width="1408" height="768" alt="Gemini_Generated_Image_2uwf3z2uwf3z2uwf" src="https://github.com/user-attachments/assets/a8cbbee0-1fc8-45ef-ad09-5285886af967" />
 
 # Lab Tools — PDF → Text and Plot → Data
 
-**▶ Use it online: https://scrooge-4cx7.onrender.com/** — no install needed.
-(Free-tier hosting: the site sleeps when idle, so the first visit may take
-~30–60 s to wake up.)
+**▶ Use it online: https://HF-USERNAME-scrooge.hf.space/** — no install needed.
+(Free-tier hosting: the Space sleeps after ~48 h without visitors, so a
+first visit after a quiet spell may take a minute to wake up.)
 
 Two utilities for turning pixels into token-cheap, computation-ready text
 (see [TOKEN_ECONOMICS.md](TOKEN_ECONOMICS.md) for the cost argument):
@@ -86,7 +97,7 @@ has your files.
 
 ## Version 1: Use it online (hosted)
 
-Just open **https://scrooge-4cx7.onrender.com/**. Note that uploaded files
+Just open **https://HF-USERNAME-scrooge.hf.space/**. Note that uploaded files
 transit the server (written to a temp file, deleted after processing) — for
 sensitive documents, use the local version below.
 
@@ -129,10 +140,13 @@ docker build -t scrooge . && docker run -p 8000:8000 scrooge
 
 GitHub Pages **cannot** host this (it serves static files only — no Python,
 no Tesseract), and Vercel's serverless runtime doesn't ship the Tesseract
-binary. Use a Docker-friendly host instead; the included `Dockerfile` and
-`render.yaml` work as-is on **Render** (that's what powers the official
-instance above), and the `Dockerfile` alone works on **Railway** or
-**Fly.io** (`fly launch`).
+binary. Use a Docker-friendly host instead. The official instance runs as a
+**Hugging Face Docker Space** (free tier: 16 GB RAM — enough to OCR large
+scanned PDFs): create a new Space with the *Docker* SDK, then push this
+repo to it; the YAML block at the top of this README is the Space config.
+The `Dockerfile` alone also works on **Render**, **Railway**, or **Fly.io**
+(`fly launch`), but note Render's free tier (512 MB RAM) is OOM-killed by
+scan-heavy PDFs — that's why the official instance moved.
 
 **Privacy note for hosts:** uploaded files transit your server (written to
 a temp file, deleted after processing, results held in memory). Say so on
