@@ -1,39 +1,26 @@
 import json
 import os
 import tempfile
-import threading
-import uuid
 
-from flask import Flask, jsonify, render_template, request, Response
+from flask import Flask, jsonify, render_template, request, send_file
 from PIL import Image
 
 import extractor
+import job_store
 import plot_digitizer
+from PIL import Image
 
 app = Flask(__name__)
 app.config["MAX_CONTENT_LENGTH"] = 100 * 1024 * 1024  # 100 MB
 
-# In-memory job store. Fine for a single-process local app; swap for
-# Redis/RQ if this ever runs multi-worker in production.
-jobs = {}
-jobs_lock = threading.Lock()
+PREVIEW_LIMIT = 20000
 
 
-def _run_job(job_id, path, lang, is_image):
-    def progress(done, total, note):
-        with jobs_lock:
-            jobs[job_id].update(done=done, total=total, note=note)
-
-    try:
-        fn = extractor.extract_image if is_image else extractor.extract
-        result = fn(path, lang=lang, progress_cb=progress)
-        with jobs_lock:
-            jobs[job_id].update(status="done", result=result)
-    except Exception as e:
-        with jobs_lock:
-            jobs[job_id].update(status="error", error=str(e))
-    finally:
-        os.unlink(path)
+def _preview(path):
+    if not os.path.isfile(path):
+        return ""
+    with open(path, encoding="utf-8") as f:
+        return f.read(PREVIEW_LIMIT)
 
 
 @app.get("/")
@@ -43,6 +30,7 @@ def index():
 
 @app.post("/api/jobs")
 def create_job():
+    job_store.cleanup_old_jobs()
     file = request.files.get("file")
     name = (file.filename or "").lower() if file else ""
     is_image = name.endswith(extractor.IMAGE_EXTS)
@@ -57,33 +45,29 @@ def create_job():
     with os.fdopen(fd, "wb") as f:
         file.save(f)
 
-    job_id = uuid.uuid4().hex
-    with jobs_lock:
-        jobs[job_id] = {
-            "status": "processing",
-            "filename": file.filename,
-            "done": 0,
-            "total": 0,
-            "note": "starting…",
-        }
-    threading.Thread(target=_run_job, args=(job_id, path, lang, is_image), daemon=True).start()
+    try:
+        job_id = job_store.create_job(file.filename, path, lang, is_image)
+    except Exception:
+        os.unlink(path)
+        raise
+
     return jsonify(id=job_id)
 
 
 @app.get("/api/jobs/<job_id>")
 def job_status(job_id):
-    with jobs_lock:
-        job = jobs.get(job_id)
-        if not job:
-            return jsonify(error="Unknown job."), 404
-        payload = {k: v for k, v in job.items() if k != "result"}
-        if job["status"] == "done":
-            payload["preview"] = {
-                "txt": job["result"]["txt"][:20000],
-                "md": job["result"]["md"][:20000],
-            }
-            payload["pages"] = job["result"]["pages"]
-            payload["ocr_pages"] = job["result"]["ocr_pages"]
+    meta = job_store.read_meta(job_id)
+    if not meta:
+        return jsonify(error="Unknown job."), 404
+
+    payload = {k: v for k, v in meta.items() if k != "id"}
+    txt_path = job_store.output_path(job_id, "txt")
+    md_path = job_store.output_path(job_id, "md")
+    if meta["status"] in ("processing", "done") and os.path.isfile(txt_path):
+        payload["preview"] = {
+            "txt": _preview(txt_path),
+            "md": _preview(md_path),
+        }
     return jsonify(payload)
 
 
@@ -92,18 +76,21 @@ def download(job_id):
     fmt = request.args.get("fmt", "txt")
     if fmt not in ("txt", "md"):
         return jsonify(error="fmt must be txt or md"), 400
-    with jobs_lock:
-        job = jobs.get(job_id)
-        if not job or job["status"] != "done":
-            return jsonify(error="Job not finished."), 404
-        content = job["result"][fmt]
-        base = os.path.splitext(job["filename"])[0]
-    return Response(
-        content,
+
+    meta = job_store.read_meta(job_id)
+    if not meta or meta["status"] != "done":
+        return jsonify(error="Job not finished."), 404
+
+    path = job_store.output_path(job_id, fmt)
+    if not os.path.isfile(path):
+        return jsonify(error="Result file missing."), 404
+
+    base = os.path.splitext(meta["filename"])[0]
+    return send_file(
+        path,
         mimetype="text/markdown" if fmt == "md" else "text/plain",
-        headers={
-            "Content-Disposition": f'attachment; filename="{base}.{fmt}"'
-        },
+        as_attachment=True,
+        download_name=f"{base}.{fmt}",
     )
 
 
@@ -136,4 +123,7 @@ def plot_digitize():
 
 
 if __name__ == "__main__":
+    import threading
+
+    threading.Thread(target=__import__("worker").main, daemon=True).start()
     app.run(debug=True, port=5050)

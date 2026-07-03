@@ -3,8 +3,12 @@
 Pages with an embedded text layer are extracted directly (fast, lossless).
 Pages without one (scans) are rendered to images and OCR'd with Tesseract.
 """
-import io
+import gc
+import os
 import re
+import subprocess
+import sys
+import tempfile
 
 import fitz  # PyMuPDF
 import pymupdf4llm
@@ -12,8 +16,10 @@ import pytesseract
 from PIL import Image
 
 OCR_DPI = 300
-# Pages with fewer extractable characters than this are treated as scanned.
+# Cap rendered long edge so a single page cannot allocate hundreds of MB.
+MAX_OCR_LONG_EDGE = 2400
 MIN_CHARS_FOR_TEXT_PAGE = 30
+PAGE_OCR_TIMEOUT = int(os.environ.get("SCROOGE_PAGE_OCR_TIMEOUT", "180"))
 
 
 def available_languages():
@@ -24,15 +30,37 @@ def available_languages():
 IMAGE_EXTS = (".png", ".jpg", ".jpeg", ".tif", ".tiff", ".bmp", ".webp")
 
 
+def _ocr_render_dpi(page):
+    long_in = max(page.rect.width, page.rect.height) / 72.0
+    if long_in <= 0:
+        return OCR_DPI
+    return min(OCR_DPI, max(72, int(MAX_OCR_LONG_EDGE / long_in)))
+
+
 def _ocr_page(page, lang):
-    pix = page.get_pixmap(dpi=OCR_DPI)
-    img = Image.open(io.BytesIO(pix.tobytes("png")))
-    return pytesseract.image_to_string(img, lang=lang)
+    pix = page.get_pixmap(dpi=_ocr_render_dpi(page), alpha=False)
+    try:
+        img = Image.frombytes("RGB", (pix.width, pix.height), pix.samples)
+        return pytesseract.image_to_string(img, lang=lang)
+    finally:
+        del pix
+
+
+def _ocr_page_subprocess(pdf_path, page_index, lang):
+    result = subprocess.run(
+        [sys.executable, os.path.join(os.path.dirname(__file__), "ocr_page.py"),
+         pdf_path, str(page_index), lang],
+        capture_output=True,
+        text=True,
+        timeout=PAGE_OCR_TIMEOUT,
+    )
+    if result.returncode != 0:
+        err = (result.stderr or result.stdout or "OCR subprocess failed").strip()
+        raise RuntimeError(f"OCR failed on page {page_index + 1}: {err}")
+    return result.stdout
 
 
 def _ocr_text_to_markdown(text):
-    """Light-touch markdown for OCR output: keep paragraphs, unwrap hard
-    line breaks inside them."""
     paragraphs = re.split(r"\n\s*\n", text.strip())
     out = []
     for p in paragraphs:
@@ -43,67 +71,90 @@ def _ocr_text_to_markdown(text):
     return "\n\n".join(out)
 
 
-def extract(pdf_path, lang="eng", progress_cb=None):
-    """Returns {"txt": str, "md": str, "pages": int, "ocr_pages": [int]}.
+def _append_page(txt_f, md_f, txt, md, first_page):
+    if not txt and not md:
+        return first_page
+    if not first_page:
+        txt_f.write("\n\n")
+        md_f.write("\n\n")
+    txt_f.write(txt)
+    md_f.write(md)
+    txt_f.flush()
+    md_f.flush()
+    return False
 
-    progress_cb(done, total, note) is called after each page.
-    """
+
+def extract_pdf_to_files(pdf_path, txt_path, md_path, lang="eng", progress_cb=None):
+    """Process one page at a time; append results to disk (bounded RAM)."""
+    ocr_pages = []
     doc = fitz.open(pdf_path)
     total = doc.page_count
+    first_page = True
 
-    is_text_page = []
-    for page in doc:
-        chars = len(page.get_text("text").strip())
-        is_text_page.append(chars >= MIN_CHARS_FOR_TEXT_PAGE)
+    with open(txt_path, "w", encoding="utf-8") as txt_f, open(
+        md_path, "w", encoding="utf-8"
+    ) as md_f:
+        for i, page in enumerate(doc):
+            text = page.get_text("text").strip()
+            if len(text) >= MIN_CHARS_FOR_TEXT_PAGE:
+                chunks = pymupdf4llm.to_markdown(
+                    doc, pages=[i], page_chunks=True, show_progress=False
+                )
+                md = chunks[0]["text"].strip() if chunks else ""
+                first_page = _append_page(txt_f, md_f, text, md, first_page)
+                note = f"extracted text layer from page {i + 1}"
+            else:
+                ocr_pages.append(i + 1)
+                raw = _ocr_page_subprocess(pdf_path, i, lang).strip()
+                md = _ocr_text_to_markdown(raw)
+                first_page = _append_page(txt_f, md_f, raw, md, first_page)
+                note = f"OCR'd page {i + 1}"
+                gc.collect()
 
-    # Markdown for text-layer pages comes from pymupdf4llm, which preserves
-    # headings, lists and tables; chunked so we can re-interleave by page.
-    text_page_indices = [i for i, t in enumerate(is_text_page) if t]
-    md_by_page = {}
-    if text_page_indices:
-        chunks = pymupdf4llm.to_markdown(
-            doc, pages=text_page_indices, page_chunks=True, show_progress=False
-        )
-        for idx, chunk in zip(text_page_indices, chunks):
-            md_by_page[idx] = chunk["text"].strip()
-
-    txt_parts, md_parts, ocr_pages = [], [], []
-    for i, page in enumerate(doc):
-        if is_text_page[i]:
-            txt_parts.append(page.get_text("text").strip())
-            md_parts.append(md_by_page.get(i, ""))
-            note = f"extracted text layer from page {i + 1}"
-        else:
-            ocr_pages.append(i + 1)
-            raw = _ocr_page(page, lang)
-            txt_parts.append(raw.strip())
-            md_parts.append(_ocr_text_to_markdown(raw))
-            note = f"OCR'd page {i + 1}"
-        if progress_cb:
-            progress_cb(i + 1, total, note)
+            if progress_cb:
+                progress_cb(i + 1, total, note)
 
     doc.close()
-    return {
-        "txt": "\n\n".join(p for p in txt_parts if p),
-        "md": "\n\n".join(p for p in md_parts if p),
-        "pages": total,
-        "ocr_pages": ocr_pages,
-    }
+    return {"pages": total, "ocr_pages": ocr_pages}
+
+
+def extract_image_to_files(image_path, txt_path, md_path, lang="eng", progress_cb=None):
+    """OCR a single image; write results to disk."""
+    img = Image.open(image_path)
+    if img.mode not in ("RGB", "L"):
+        img = img.convert("RGB")
+    raw = pytesseract.image_to_string(img, lang=lang).strip()
+    md = _ocr_text_to_markdown(raw)
+    with open(txt_path, "w", encoding="utf-8") as txt_f, open(
+        md_path, "w", encoding="utf-8"
+    ) as md_f:
+        txt_f.write(raw)
+        md_f.write(md)
+    if progress_cb:
+        progress_cb(1, 1, "OCR'd image")
+    return {"pages": 1, "ocr_pages": [1]}
+
+
+def extract(pdf_path, lang="eng", progress_cb=None):
+    """In-memory API for MCP / scripts. Uses disk streaming internally."""
+    with tempfile.TemporaryDirectory() as td:
+        txt_path = os.path.join(td, "output.txt")
+        md_path = os.path.join(td, "output.md")
+        meta = extract_pdf_to_files(pdf_path, txt_path, md_path, lang, progress_cb)
+        with open(txt_path, encoding="utf-8") as f:
+            txt = f.read()
+        with open(md_path, encoding="utf-8") as f:
+            md = f.read()
+        return {"txt": txt, "md": md, **meta}
 
 
 def extract_image(image_path, lang="eng", progress_cb=None):
-    """OCR a single image file. Same return shape as extract()."""
-    img = Image.open(image_path)
-    # Tesseract works in RGB/grayscale; drop alpha/palette so PNGs with
-    # transparency don't OCR as a black rectangle.
-    if img.mode not in ("RGB", "L"):
-        img = img.convert("RGB")
-    raw = pytesseract.image_to_string(img, lang=lang)
-    if progress_cb:
-        progress_cb(1, 1, "OCR'd image")
-    return {
-        "txt": raw.strip(),
-        "md": _ocr_text_to_markdown(raw),
-        "pages": 1,
-        "ocr_pages": [1],
-    }
+    with tempfile.TemporaryDirectory() as td:
+        txt_path = os.path.join(td, "output.txt")
+        md_path = os.path.join(td, "output.md")
+        meta = extract_image_to_files(image_path, txt_path, md_path, lang, progress_cb)
+        with open(txt_path, encoding="utf-8") as f:
+            txt = f.read()
+        with open(md_path, encoding="utf-8") as f:
+            md = f.read()
+        return {"txt": txt, "md": md, **meta}

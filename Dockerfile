@@ -10,7 +10,9 @@ RUN pip install --no-cache-dir -r requirements.txt gunicorn
 
 COPY . .
 
+RUN chmod +x start.sh
+
 ENV PORT=8000
+ENV SCROOGE_JOBS_DIR=/var/scrooge/jobs
 EXPOSE 8000
-# Single worker: the job store is in-process memory. Use threads for concurrency.
-CMD exec gunicorn --workers 1 --threads 8 --timeout 300 --bind 0.0.0.0:$PORT app:app
+CMD ["./start.sh"]
