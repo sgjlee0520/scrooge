@@ -163,23 +163,39 @@ convertBtn.onclick = async () => {
   form.append('file', file);
   form.append('lang', document.getElementById('lang').value);
 
-  try {
-    const res = await fetch('/api/jobs', { method: 'POST', body: form });
-    const data = await res.json();
-    if (!res.ok) return showError(data.error || 'Upload failed.');
+  const xhr = new XMLHttpRequest();
+  xhr.open('POST', '/api/jobs');
+  xhr.upload.onprogress = e => {
+    if (e.lengthComputable) {
+      const pct = (100 * e.loaded / e.total).toFixed(0);
+      bar.style.width = `${pct}%`;
+      note.textContent = `Uploading… ${pct}%`;
+    }
+  };
+  xhr.onload = () => {
+    let data = {};
+    try { data = JSON.parse(xhr.responseText); } catch {}
+    if (xhr.status < 200 || xhr.status >= 300) {
+      return showError(data.error || 'Upload failed.');
+    }
     jobId = data.id;
+    bar.style.width = '0%';
+    note.textContent = 'Queued…';
     poll();
-  } catch (e) {
-    showError('Network error: ' + e.message);
-  }
+  };
+  xhr.onerror = () => showError('Network error during upload.');
+  xhr.send(form);
 };
 
 async function poll() {
   const res = await fetch(`/api/jobs/${jobId}`);
   const job = await res.json();
   if (job.status === 'error') return showError(job.error);
-  if (job.status === 'processing') {
-    if (job.total) {
+  if (job.status !== 'done') {
+    // queued, processing, or any future in-flight state: keep polling
+    if (job.status === 'queued') {
+      note.textContent = 'Queued…';
+    } else if (job.total) {
       bar.style.width = `${(100 * job.done / job.total).toFixed(0)}%`;
       note.textContent = `${job.note} (${job.done}/${job.total})`;
     }
