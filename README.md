@@ -13,7 +13,7 @@ license: agpl-3.0
 
 # Lab Tools — PDF → Text and Plot → Data
 
-**▶ Use it online: https://HF-USERNAME-scrooge.hf.space/** — no install needed.
+**▶ Use it online: https://sgjlee0520-scrooge.hf.space/** — no install needed.
 (Free-tier hosting: the Space sleeps after ~48 h without visitors, so a
 first visit after a quiet spell may take a minute to wake up.)
 
@@ -97,7 +97,7 @@ has your files.
 
 ## Version 1: Use it online (hosted)
 
-Just open **https://HF-USERNAME-scrooge.hf.space/**. Note that uploaded files
+Just open **https://sgjlee0520-scrooge.hf.space/**. Note that uploaded files
 transit the server (written to a temp file, deleted after processing) — for
 sensitive documents, use the local version below.
 
